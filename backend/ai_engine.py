@@ -5,8 +5,22 @@ from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-nlp = spacy.load("en_core_web_sm")
-model = SentenceTransformer('all-MiniLM-L6-v2')
+nlp = None
+model = None
+
+def get_nlp():
+    global nlp
+    if nlp is None:
+        nlp = spacy.load("en_core_web_sm")
+    return nlp
+
+def get_model():
+    global model
+    if model is None:
+        import torch
+        torch.set_num_threads(1)
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+    return model
 
 def extract_text_from_pdf(content: bytes) -> str:
     doc = fitz.open(stream=content, filetype="pdf")
@@ -31,14 +45,16 @@ def compute_tfidf_similarity(jd_text: str, resume_text: str) -> float:
 
 def compute_bert_similarity(jd_text: str, resume_text: str) -> float:
     try:
-        embeddings = model.encode([jd_text, resume_text])
+        current_model = get_model()
+        embeddings = current_model.encode([jd_text, resume_text])
         similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
         return float(similarity * 100)
     except:
         return 0.0
 
 def extract_skills(text: str) -> set:
-    doc = nlp(text)
+    current_nlp = get_nlp()
+    doc = current_nlp(text)
     skills = set()
     for ent in doc.ents:
         if ent.label_ in ["ORG", "PRODUCT", "WORK_OF_ART", "GPE"]:
