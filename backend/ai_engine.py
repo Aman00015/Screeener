@@ -2,7 +2,7 @@ import fitz  # PyMuPDF
 import docx
 import spacy
 import os
-import requests
+from fastembed import TextEmbedding
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -16,8 +16,12 @@ def get_nlp():
     return nlp
 
 def get_model():
-    # Model is now accessed via API, so we don't need to load a local model
-    pass
+    global model
+    if model is None:
+        # FastEmbed uses ONNX runtime instead of PyTorch, which is extremely memory efficient
+        # and fits perfectly within the 512MB RAM limit.
+        model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    return model
 
 def extract_text_from_pdf(content: bytes) -> str:
     doc = fitz.open(stream=content, filetype="pdf")
@@ -41,25 +45,14 @@ def compute_tfidf_similarity(jd_text: str, resume_text: str) -> float:
         return 0.0
 
 def compute_bert_similarity(jd_text: str, resume_text: str) -> float:
-    hf_api_key = os.environ.get("HF_API_KEY")
-    if not hf_api_key:
-        print("HF_API_KEY not found in environment variables. Returning 0.0 for BERT similarity.")
-        return 0.0
-        
-    api_url = "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
-    headers = {"Authorization": f"Bearer {hf_api_key}"}
-    
     try:
-        response = requests.post(api_url, headers=headers, json={"inputs": [jd_text, resume_text]}, timeout=15)
-        if response.status_code == 200:
-            embeddings = response.json()
-            similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
-            return float(similarity * 100)
-        else:
-            print(f"HF API Error: {response.status_code} - {response.text}")
-            return 0.0
+        current_model = get_model()
+        # FastEmbed returns a generator, so we convert it to a list
+        embeddings = list(current_model.embed([jd_text, resume_text]))
+        similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
+        return float(similarity * 100)
     except Exception as e:
-        print(f"Failed to fetch BERT embeddings: {e}")
+        print(f"Failed to fetch BERT embeddings via FastEmbed: {e}")
         return 0.0
 
 def extract_skills(text: str) -> set:
